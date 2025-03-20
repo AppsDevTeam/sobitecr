@@ -1,0 +1,25 @@
+{
+    "name": "adt/sobitecr",
+    "type": "library",
+    "description": "PHP library for www.sobitecr.com",
+    "license": [
+        "MIT"
+    ],
+    "authors": [
+        {
+            "name": "Apps Dev Team",
+            "homepage": "https://www.appsdevteam.com"
+        }
+    ],
+    "require": {
+        "php": "^7.4",
+        "nette/utils": "^2.0|^3.0|^4.0",
+        "ratchet/pawl": "^0.4"
+
+    },
+    "autoload": {
+        "psr-4": {
+            "ADT\\SobitEcr\\": "src/"
+        }
+    }
+}
