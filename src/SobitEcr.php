@@ -35,14 +35,14 @@ final class SobitEcr
 
 		$authHeader = base64_encode($this->identifier . ' ' . $this->token);
 
-		Ratchet\Client\connect('wss://connect.sobitecr.com', [], [
+		\Ratchet\Client\connect('wss://connect.sobitecr.com', [], [
 			'X-Api-Key' => $this->apiKey,
 			'Authorization' => 'Bearer ' . $authHeader,
 		])->then(
 			function (WebSocket $conn) use ($onResponse, $onError, $onConnect) {
 				$this->ws = $conn;
 
-				$conn->on('message', function ($message) use ($conn, $onResponse, $onError, $onConnect) {
+				$this->ws->on('message', function ($message) use ($onResponse, $onError, $onConnect) {
 					$message = Json::decode($message, forceArrays: true);
 
 					if (isset($message['error'])) {
@@ -58,18 +58,21 @@ final class SobitEcr
 							$this->sendPendingMessages();
 						} elseif ($message['data']['op'] === 'complete_transaction') {
 							$onResponse($message);
-							$conn->close();
+							$this->ws->close();
+							$this->ws = null;
 						}
 					}
 				});
 
-				$conn->on('error', function ($e) use ($conn, $onError) {
+				$this->ws->on('error', function ($e) use ($onError) {
 					$onError(-1, "WebSocket error: " . $e->getMessage());
-					$conn->close();
+					$this->ws->close();
+					$this->ws = null;
 				});
 			},
 			function (Exception $e) use ($onError) {
 				$onError(-1, "Connection unsuccessful ({$e->getMessage()})");
+				$this->ws = null;
 			}
 		);
 	}
