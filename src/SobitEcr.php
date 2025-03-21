@@ -26,7 +26,7 @@ final class SobitEcr
 		return Random::generate(64);
 	}
 
-	private function connect(callable $onResponse, callable $onError, ?callable $onConnect): void
+	private function connect(?callable $onResponse, ?callable $onError, ?callable $onConnect): void
 	{
 		if ($this->ws !== null) {
 			$this->sendPendingMessages();
@@ -35,18 +35,20 @@ final class SobitEcr
 
 		$authHeader = base64_encode($this->identifier . ' ' . $this->token);
 
-		\Ratchet\Client\connect('wss://connect.sobitecr.com', [], [
+		Ratchet\Client\connect('wss://connect.sobitecr.com', [], [
 			'X-Api-Key' => $this->apiKey,
 			'Authorization' => 'Bearer ' . $authHeader,
 		])->then(
 			function (WebSocket $conn) use ($onResponse, $onError, $onConnect) {
 				$this->ws = $conn;
 
-				$this->ws->on('message', function ($message) use ($onResponse, $onError, $onConnect) {
+				$conn->on('message', function ($message) use ($conn, $onResponse, $onError, $onConnect) {
 					$message = Json::decode($message, forceArrays: true);
 
 					if (isset($message['error'])) {
-						$onError($message['error']['code'], $message['error']['message']);
+						if ($onError) {
+							$onError($message['error']['code'], $message['error']['message']);
+						}
 						return;
 					}
 
@@ -57,27 +59,30 @@ final class SobitEcr
 							}
 							$this->sendPendingMessages();
 						} elseif ($message['data']['op'] === 'complete_transaction') {
-							$onResponse($message);
-							$this->ws->close();
-							$this->ws = null;
+							if ($onResponse) {
+								$onResponse($message);
+							}
+							$conn->close();
 						}
 					}
 				});
 
-				$this->ws->on('error', function ($e) use ($onError) {
-					$onError(-1, "WebSocket error: " . $e->getMessage());
-					$this->ws->close();
-					$this->ws = null;
+				$conn->on('error', function ($e) use ($conn, $onError) {
+					if ($onError) {
+						$onError(-1, "WebSocket error: " . $e->getMessage());
+					}
+					$conn->close();
 				});
 			},
 			function (Exception $e) use ($onError) {
-				$onError(-1, "Connection unsuccessful ({$e->getMessage()})");
-				$this->ws = null;
+				if ($onError) {
+					$onError(-1, "Connection unsuccessful ({$e->getMessage()})");					
+				}
 			}
 		);
 	}
 
-	public function send(string $message, callable $onResponse, callable $onError, ?callable $onConnect = null): void
+	public function send(string $message, ?callable $onResponse = null, ?callable $onError = null, ?callable $onConnect = null): void
 	{
 		$this->pendingMessages[] = $message;
 		$this->connect($onResponse, $onError, $onConnect);
