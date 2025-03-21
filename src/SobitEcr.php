@@ -35,7 +35,7 @@ final class SobitEcr
 
 		$authHeader = base64_encode($this->identifier . ' ' . $this->token);
 
-		Ratchet\Client\connect('wss://connect.sobitecr.com', [], [
+		\Ratchet\Client\connect('wss://connect.sobitecr.com', [], [
 			'X-Api-Key' => $this->apiKey,
 			'Authorization' => 'Bearer ' . $authHeader,
 		])->then(
@@ -76,7 +76,7 @@ final class SobitEcr
 			},
 			function (Exception $e) use ($onError) {
 				if ($onError) {
-					$onError(-1, "Connection unsuccessful ({$e->getMessage()})");					
+					$onError(-1, "Connection unsuccessful ({$e->getMessage()})");
 				}
 			}
 		);
