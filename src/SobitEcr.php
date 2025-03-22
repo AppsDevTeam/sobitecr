@@ -8,6 +8,10 @@ use Ratchet\Client\WebSocket;
 
 final class SobitEcr
 {
+	const OP_START_TRANSACTION = 'start_transaction';
+	const OP_CANCEL_TRANSACTION = 'cancel_transaction';
+	const OP_NOTIFY_GROUP = 'notify_group';
+
 	private string $apiKey;
 	private string $identifier;
 	private string $token;
@@ -82,9 +86,9 @@ final class SobitEcr
 		);
 	}
 
-	public function send(string $message, ?callable $onResponse = null, ?callable $onError = null, ?callable $onConnect = null): void
+	public function send(string $op, ?string $message = null,  ?callable $onResponse = null, ?callable $onError = null, ?callable $onConnect = null): void
 	{
-		$this->pendingMessages[] = $message;
+		$this->pendingMessages[] = ['data' => ['op' => $op, 'message' => $message]];
 		$this->connect($onResponse, $onError, $onConnect);
 	}
 
@@ -92,7 +96,7 @@ final class SobitEcr
 	{
 		if ($this->ws !== null) {
 			while ($message = array_shift($this->pendingMessages)) {
-				$this->ws->send($message);
+				$this->ws->send(Json::encode($message));
 			}
 		}
 	}
