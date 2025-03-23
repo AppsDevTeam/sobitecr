@@ -3,6 +3,7 @@
 namespace ADT\SobitEcr;
 
 use Nette\Utils\Json;
+use Nette\Utils\JsonException;
 use Nette\Utils\Random;
 use Ratchet\Client\WebSocket;
 
@@ -48,31 +49,37 @@ final class SobitEcr
 				$this->ws = $conn;
 
 				$this->ws->on('message', function ($message) use ($onResponse, $onError, $onConnect) {
-					$message = Json::decode($message, forceArrays: true);
+					try {
+						$message = Json::decode($message, forceArrays: true);
+					} catch (JsonException $e) {
+						if ($onError) {
+							$onError(-1, 'Error parsing message');
+						}
+						$this->close();
+						return;
+					}
 
 					if (isset($message['error'])) {
 						if ($onError) {
 							$onError($message['error']['code'], $message['error']['message']);
 						}
-						$this->ws->close();
-						$this->ws = null;
+						$this->close();
 						return;
 					}
 
-					if (isset($message['data']['op'])) {
-						if ($message['data']['op'] === 'connection_established') {
-							if ($onConnect) {
-								$onConnect();
-							}
-							$this->sendPendingMessages();
-						} elseif ($message['data']['op'] === 'complete_transaction') {
-							if ($onResponse) {
-								$onResponse($message['data']['message'], $message['data']['op'] ?? null);
-							}
-							$this->ws->close();
-							$this->ws = null;
+					if (isset($message['data']['op']) && $message['data']['op'] === 'connection_established') {
+						if ($onConnect) {
+							$onConnect();
 						}
+						$this->sendPendingMessages();
+						return;
 					}
+
+					if ($onResponse) {
+						$onResponse($message['data']['message'], $message['data']['op'] ?? null);
+					}
+
+					$this->close();
 				});
 
 				$this->ws->on('error', function ($e) use ($onError) {
@@ -104,5 +111,11 @@ final class SobitEcr
 				$this->ws->send(Json::encode($message));
 			}
 		}
+	}
+
+	private function close(): void
+	{
+		$this->ws->close();
+		$this->ws = null;
 	}
 }
