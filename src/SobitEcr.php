@@ -10,6 +10,7 @@ final class SobitEcr
 {
 	const OP_START_TRANSACTION = 'start_transaction';
 	const OP_CANCEL_TRANSACTION = 'cancel_transaction';
+	const OP_COMPLETE_TRANSACTION = 'complete_transaction';
 	const OP_NOTIFY_GROUP = 'notify_group';
 
 	private string $apiKey;
@@ -46,13 +47,15 @@ final class SobitEcr
 			function (WebSocket $conn) use ($onResponse, $onError, $onConnect) {
 				$this->ws = $conn;
 
-				$conn->on('message', function ($message) use ($conn, $onResponse, $onError, $onConnect) {
+				$this->ws->on('message', function ($message) use ($onResponse, $onError, $onConnect) {
 					$message = Json::decode($message, forceArrays: true);
 
 					if (isset($message['error'])) {
 						if ($onError) {
 							$onError($message['error']['code'], $message['error']['message']);
 						}
+						$this->ws->close();
+						$this->ws = null;
 						return;
 					}
 
@@ -64,18 +67,20 @@ final class SobitEcr
 							$this->sendPendingMessages();
 						} elseif ($message['data']['op'] === 'complete_transaction') {
 							if ($onResponse) {
-								$onResponse($message);
+								$onResponse($message['data']['message'], $message['data']['op'] ?? null);
 							}
-							$conn->close();
+							$this->ws->close();
+							$this->ws = null;
 						}
 					}
 				});
 
-				$conn->on('error', function ($e) use ($conn, $onError) {
+				$this->ws->on('error', function ($e) use ($onError) {
 					if ($onError) {
 						$onError(-1, "WebSocket error: " . $e->getMessage());
 					}
-					$conn->close();
+					$this->ws->close();
+					$this->ws = null;
 				});
 			},
 			function (Exception $e) use ($onError) {
