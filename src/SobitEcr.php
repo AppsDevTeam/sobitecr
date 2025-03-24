@@ -6,6 +6,10 @@ use Nette\Utils\Json;
 use Nette\Utils\JsonException;
 use Nette\Utils\Random;
 use Ratchet\Client\WebSocket;
+use React\EventLoop\Loop;
+use Ratchet\RFC6455\Messaging\Frame;
+use React\EventLoop\LoopInterface;
+use React\EventLoop\TimerInterface;
 
 final class SobitEcr
 {
@@ -17,8 +21,13 @@ final class SobitEcr
 	private string $apiKey;
 	private string $identifier;
 	private string $token;
+
+	private ?LoopInterface $loop = null;
 	private ?WebSocket $ws = null;
+
 	private array $pendingMessages = [];
+	private bool $pongReceived;
+	private TimerInterface $pingTimer;
 
 	public function __construct(string $apiKey, string $identifier, string $token)
 	{
@@ -34,36 +43,37 @@ final class SobitEcr
 
 	private function connect(?callable $onResponse, ?callable $onError, ?callable $onConnect): void
 	{
+		$this->log('connect');
+
 		if ($this->ws !== null) {
 			$this->sendPendingMessages();
 			return;
 		}
 
-		$authHeader = base64_encode($this->identifier . ' ' . $this->token);
+		$this->loop = Loop::get();
 
 		\Ratchet\Client\connect('wss://connect.sobitecr.com', [], [
 			'X-Api-Key' => $this->apiKey,
-			'Authorization' => 'Bearer ' . $authHeader,
-		])->then(
+			'Authorization' => 'Bearer ' . base64_encode($this->identifier . ' ' . $this->token),
+		], $this->loop)->then(
 			function (WebSocket $conn) use ($onResponse, $onError, $onConnect) {
+				$this->log('onConnect');
+
 				$this->ws = $conn;
+				$this->pongReceived = true;
 
 				$this->ws->on('message', function ($message) use ($onResponse, $onError, $onConnect) {
+					$this->log('onMessage');
+
 					try {
 						$message = Json::decode($message, forceArrays: true);
 					} catch (JsonException $e) {
-						if ($onError) {
-							$onError(-1, 'Error parsing message');
-						}
-						$this->close();
+						$this->error($onError, -1, 'Error parsing message');
 						return;
 					}
 
 					if (isset($message['error'])) {
-						if ($onError) {
-							$onError($message['error']['code'], $message['error']['message']);
-						}
-						$this->close();
+						$this->error($onError, $message['error']['code'], $message['error']['message']);
 						return;
 					}
 
@@ -75,25 +85,55 @@ final class SobitEcr
 						return;
 					}
 
-					if ($onResponse) {
-						$onResponse($message['data']['message'], $message['data']['op'] ?? null);
+					if (isset($message['data']['uuid'])) {
+						$this->ws->send(Json::encode(['data' => ['op' => 'ack', 'message' => $message['data']['uuid']]]));
 					}
 
-					$this->close();
+					if ($onResponse) {
+						if ($onResponse($message['data']['message'], $message['data']['op'] ?? null)) {
+							$this->loop->addTimer(0.001, function () {
+								$this->close();
+							});
+						}
+					} else {
+						$this->loop->addTimer(0.001, function () {
+							$this->close();
+						});
+					}
 				});
 
 				$this->ws->on('error', function ($e) use ($onError) {
-					if ($onError) {
-						$onError(-1, "WebSocket error: " . $e->getMessage());
+					$this->error($onError, -1, "WebSocket error: " . $e->getMessage());
+				});
+
+				$conn->on('pong', function() {
+					$this->log('pong');
+					$this->pongReceived = true;
+				});
+
+				$this->pingTimer = $this->loop->addPeriodicTimer(1, function () use ($onResponse, $onError, $onConnect) {
+					if (!$this->pongReceived) {
+						$this->log('pong not received');
+						$this->ws->close();
+						return;
 					}
-					$this->ws->close();
-					$this->ws = null;
+					$this->log('ping');
+					$this->pongReceived = false;
+					$this->ws->send(new Frame(uniqid(), true, Frame::OP_PING));
+				});
+
+				$this->ws->on('close', function (int $code, string $reason) use ($onResponse, $onError, $onConnect) {
+					if ($this->loop) {
+						$this->log('onClose');
+						$this->loop->cancelTimer($this->pingTimer);
+						$this->ws = null;
+						sleep(10);
+						$this->connect($onResponse, $onError, $onConnect);
+					}
 				});
 			},
-			function (Exception $e) use ($onError) {
-				if ($onError) {
-					$onError(-1, "Connection unsuccessful ({$e->getMessage()})");
-				}
+			function (\Exception $e) use ($onError) {
+				$this->error($onError, -1, 'Connection unsuccessful (' . $e->getMessage() . ')');
 			}
 		);
 	}
@@ -113,9 +153,33 @@ final class SobitEcr
 		}
 	}
 
+	private function error(?callable $onError, int $code, string $message): void
+	{
+		if ($onError) {
+			if ($onError($code, $message)) {
+				$this->close();
+			}
+		} else {
+			$this->close();
+		}
+	}
+
 	private function close(): void
 	{
-		$this->ws->close();
-		$this->ws = null;
+		$this->log('close');
+		if ($this->loop) {
+			$this->loop->cancelTimer($this->pingTimer);
+			$this->loop->stop();
+			$this->loop = null;
+		}
+		if ($this->ws) {
+			$this->ws->close();
+			$this->ws = null;
+		}
+	}
+
+	private function log(string $message)
+	{
+		echo $message . PHP_EOL;
 	}
 }
