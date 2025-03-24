@@ -2,9 +2,11 @@
 
 namespace ADT\SobitEcr;
 
+use Exception;
 use Nette\Utils\Json;
 use Nette\Utils\JsonException;
 use Nette\Utils\Random;
+use Ramsey\Uuid\Uuid;
 use Ratchet\Client\WebSocket;
 use React\EventLoop\Loop;
 use Ratchet\RFC6455\Messaging\Frame;
@@ -18,6 +20,8 @@ final class SobitEcr
 	const OP_COMPLETE_TRANSACTION = 'complete_transaction';
 	const OP_NOTIFY_GROUP = 'notify_group';
 
+	public static bool $debug = false;
+
 	private string $apiKey;
 	private string $identifier;
 	private string $token;
@@ -25,15 +29,18 @@ final class SobitEcr
 	private ?LoopInterface $loop = null;
 	private ?WebSocket $ws = null;
 
-	private array $pendingMessages = [];
+	private ?TimerInterface $ackTimer;
+	private bool $closeAfterAck;
+	private array $pendingMessages;
+	private ?TimerInterface $pingTimer;
 	private bool $pongReceived;
-	private TimerInterface $pingTimer;
 
 	public function __construct(string $apiKey, string $identifier, string $token)
 	{
 		$this->apiKey = $apiKey;
 		$this->identifier = $identifier;
 		$this->token = $token;
+		$this->setDefaults();
 	}
 
 	public static function generateToken(): string
@@ -65,9 +72,11 @@ final class SobitEcr
 				$this->ws->on('message', function ($message) use ($onResponse, $onError, $onConnect) {
 					$this->log('onMessage');
 
+					$this->log('Message: ' . $message);
+
 					try {
 						$message = Json::decode($message, forceArrays: true);
-					} catch (JsonException $e) {
+					} catch (JsonException) {
 						$this->error($onError, -1, 'Error parsing message');
 						return;
 					}
@@ -83,6 +92,14 @@ final class SobitEcr
 						}
 						$this->sendPendingMessages();
 						return;
+					}
+
+					if (isset($message['data']['op']) && $message['data']['op'] === 'ack') {
+						$this->loop->cancelTimer($this->ackTimer);
+						if ($this->closeAfterAck) {
+							$this->close();
+							return;
+						}
 					}
 
 					if (isset($message['data']['uuid'])) {
@@ -132,13 +149,13 @@ final class SobitEcr
 					}
 				});
 			},
-			function (\Exception $e) use ($onError) {
+			function (Exception $e) use ($onError) {
 				$this->error($onError, -1, 'Connection unsuccessful (' . $e->getMessage() . ')');
 			}
 		);
 	}
 
-	public function send(string $op, ?string $message = null,  ?callable $onResponse = null, ?callable $onError = null, ?callable $onConnect = null): void
+	public function send(string $op, ?string $message = null, ?callable $onResponse = null, ?callable $onError = null, ?callable $onConnect = null): void
 	{
 		$this->pendingMessages[] = ['data' => ['op' => $op, 'message' => $message]];
 		$this->connect($onResponse, $onError, $onConnect);
@@ -148,6 +165,15 @@ final class SobitEcr
 	{
 		if ($this->ws !== null) {
 			while ($message = array_shift($this->pendingMessages)) {
+				if ($message['data']['op'] === SobitEcr::OP_NOTIFY_GROUP) {
+					$message['data']['uuid'] = Uuid::uuid4()->toString();
+					$this->closeAfterAck = true;
+				}
+				if ($this->closeAfterAck) {
+					$this->ackTimer = $this->loop->addTimer(1, function () use ($message) {
+						$this->ws->send(Json::encode($message));
+					});
+				}
 				$this->ws->send(Json::encode($message));
 			}
 		}
@@ -176,10 +202,22 @@ final class SobitEcr
 			$this->ws->close();
 			$this->ws = null;
 		}
+		$this->setDefaults();
 	}
 
-	private function log(string $message)
+	private function log(string $message): void
 	{
-		echo $message . PHP_EOL;
+		if (self::$debug) {
+			echo $message . PHP_EOL;
+		}
+	}
+
+	private function setDefaults(): void
+	{
+		$this->ackTimer = null;
+		$this->closeAfterAck = false;
+		$this->pendingMessages = [];
+		$this->pingTimer = null;
+		$this->pongReceived = false;
 	}
 }
