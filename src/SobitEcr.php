@@ -170,7 +170,7 @@ final class SobitEcr
 					$this->closeAfterAck = true;
 				}
 				if ($this->closeAfterAck) {
-					$this->ackTimer = $this->loop->addTimer(1, function () use ($message) {
+					$this->ackTimer = $this->loop->addPeriodicTimer(1, function () use ($message) {
 						$this->ws->send(Json::encode($message));
 					});
 				}
