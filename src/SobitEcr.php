@@ -161,6 +161,12 @@ final class SobitEcr
 		$this->connect($onResponse, $onError, $onConnect);
 	}
 
+	public function notifyGroup(string $message, string $group, int $senderId, ?callable $onResponse = null, ?callable $onError = null, ?callable $onConnect = null): void
+	{
+		$this->pendingMessages[] = ['data' => ['op' => self::OP_NOTIFY_GROUP, 'group' => $group, 'device_id' => $senderId, 'message' => $message]];
+		$this->connect($onResponse, $onError, $onConnect);
+	}
+
 	private function sendPendingMessages(): void
 	{
 		if ($this->ws !== null) {
