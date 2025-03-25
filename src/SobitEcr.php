@@ -86,7 +86,7 @@ final class SobitEcr
 						return;
 					}
 
-					if (isset($message['data']['op']) && $message['data']['op'] === 'connection_established') {
+					if (isset($message['data']['op']) && $message['data']['op'] === 'update_connection_state') {
 						if ($onConnect) {
 							$onConnect();
 						}
