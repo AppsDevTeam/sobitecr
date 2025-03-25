@@ -194,7 +194,9 @@ final class SobitEcr
 	{
 		$this->log('close');
 		if ($this->loop) {
-			$this->loop->cancelTimer($this->pingTimer);
+			if ($this->pingTimer) {
+				$this->loop->cancelTimer($this->pingTimer);
+			}
 			$this->loop->stop();
 			$this->loop = null;
 		}
