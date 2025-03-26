@@ -19,6 +19,7 @@ final class SobitEcr
 	const OP_CANCEL_TRANSACTION = 'cancel_transaction';
 	private const OP_COMPLETE_TRANSACTION = 'complete_transaction';
 	private const OP_NOTIFY_GROUP = 'notify_group';
+	private const OP_NOTIFY = 'notify';
 
 	public static bool $debug = false;
 
@@ -186,6 +187,13 @@ final class SobitEcr
 		$this->opParams['transaction_id'] = $transactionId;
 		$this->pendingMessages[] = ['data' => ['op' => $this->op, 'transaction_id' => $transactionId, 'message' => $message]];
 		$this->connect($onResponse, $onError, $onConnect);
+	}
+
+	public function notify(string $message, ?string $deviceId = null, ?callable $onError = null, ?callable $onConnect = null): void
+	{
+		$this->op = self::OP_NOTIFY;
+		$this->pendingMessages[] = ['data' => ['op' => $this->op, 'device_id' => $deviceId, 'message' => $message]];
+		$this->connect(null, $onError, $onConnect);
 	}
 
 	public function notifyGroup(string $message, string $group, ?string $senderId = null, ?callable $onError = null, ?callable $onConnect = null): void
