@@ -75,8 +75,8 @@ final class SobitEcr
 					$this->log('Message: ' . $message);
 
 					try {
-						$message = Json::decode($message, forceArrays: true);
-					} catch (JsonException) {
+						$message = Json::decode($message, true);
+					} catch (JsonException $e) {
 						$this->error($onError, -1, 'Error parsing message');
 						return;
 					}
@@ -158,6 +158,18 @@ final class SobitEcr
 	public function send(string $op, ?string $message = null, ?callable $onResponse = null, ?callable $onError = null, ?callable $onConnect = null): void
 	{
 		$this->pendingMessages[] = ['data' => ['op' => $op, 'message' => $message]];
+		$this->connect($onResponse, $onError, $onConnect);
+	}
+
+	public function startTransaction(string $message, string $transactionId, ?callable $onResponse = null, ?callable $onError = null, ?callable $onConnect = null): void
+	{
+		$this->pendingMessages[] = ['data' => ['op' => self::OP_START_TRANSACTION, 'transaction_id' => $transactionId, 'message' => $message]];
+		$this->connect($onResponse, $onError, $onConnect);
+	}
+
+	public function cancelTransaction(string $message, string $transactionId, ?callable $onResponse = null, ?callable $onError = null, ?callable $onConnect = null): void
+	{
+		$this->pendingMessages[] = ['data' => ['op' => self::OP_CANCEL_TRANSACTION, 'transaction_id' => $transactionId, 'message' => $message]];
 		$this->connect($onResponse, $onError, $onConnect);
 	}
 
