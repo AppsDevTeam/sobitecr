@@ -31,9 +31,12 @@ final class SobitEcr
 
 	private ?TimerInterface $ackTimer;
 	private bool $closeAfterAck;
+	private ?string $op;
+	private array $opParams;
 	private array $pendingMessages;
 	private ?TimerInterface $pingTimer;
 	private bool $pongReceived;
+	private bool $reconnect;
 
 	public function __construct(string $apiKey, string $identifier, string $token)
 	{
@@ -82,6 +85,9 @@ final class SobitEcr
 					}
 
 					if (isset($message['error'])) {
+						if ($message['error']['code'] === 6) {
+							$this->reconnect = false;
+						}
 						$this->error($onError, $message['error']['code'], $message['error']['message']);
 						return;
 					}
@@ -102,17 +108,18 @@ final class SobitEcr
 						}
 					}
 
+					// ack
 					if (isset($message['data']['uuid'])) {
 						$this->ws->send(Json::encode(['data' => ['op' => 'ack', 'message' => $message['data']['uuid']]]));
 					}
 
-					if ($onResponse) {
-						if ($onResponse($message['data']['message'], $message['data']['op'] ?? null)) {
-							$this->loop->addTimer(0.001, function () {
-								$this->close();
-							});
-						}
-					} else {
+					if (
+						$message['data']['op'] === self::OP_COMPLETE_TRANSACTION
+							&& in_array($this->op, [self::OP_START_TRANSACTION, self::OP_CANCEL_TRANSACTION])
+							&& $this->opParams['transaction_id'] === $message['data']['transaction_id']
+					) {
+						$onResponse && $onResponse($message['data']['message']);
+						// we need this because otherwise "ack" wouldn't be sent
 						$this->loop->addTimer(0.001, function () {
 							$this->close();
 						});
@@ -139,13 +146,17 @@ final class SobitEcr
 					$this->ws->send(new Frame(uniqid(), true, Frame::OP_PING));
 				});
 
-				$this->ws->on('close', function (int $code, string $reason) use ($onResponse, $onError, $onConnect) {
+				$this->ws->on('close', function () use ($onResponse, $onError, $onConnect) {
+					$this->log('onClose');
 					if ($this->loop) {
-						$this->log('onClose');
-						$this->loop->cancelTimer($this->pingTimer);
-						$this->ws = null;
-						sleep(10);
-						$this->connect($onResponse, $onError, $onConnect);
+						if ($this->reconnect) {
+							$this->loop->cancelTimer($this->pingTimer);
+							$this->ws = null;
+							sleep(1);
+							$this->connect($onResponse, $onError, $onConnect);
+						} else {
+							$this->close();
+						}
 					}
 				});
 			},
@@ -163,20 +174,25 @@ final class SobitEcr
 
 	public function startTransaction(string $message, string $transactionId, ?callable $onResponse = null, ?callable $onError = null, ?callable $onConnect = null): void
 	{
-		$this->pendingMessages[] = ['data' => ['op' => self::OP_START_TRANSACTION, 'transaction_id' => $transactionId, 'message' => $message]];
+		$this->op = self::OP_START_TRANSACTION;
+		$this->opParams['transaction_id'] = $transactionId;
+		$this->pendingMessages[] = ['data' => ['op' => $this->op, 'transaction_id' => $transactionId, 'message' => $message]];
 		$this->connect($onResponse, $onError, $onConnect);
 	}
 
 	public function cancelTransaction(string $message, string $transactionId, ?callable $onResponse = null, ?callable $onError = null, ?callable $onConnect = null): void
 	{
-		$this->pendingMessages[] = ['data' => ['op' => self::OP_CANCEL_TRANSACTION, 'transaction_id' => $transactionId, 'message' => $message]];
+		$this->op = self::OP_CANCEL_TRANSACTION;
+		$this->opParams['transaction_id'] = $transactionId;
+		$this->pendingMessages[] = ['data' => ['op' => $this->op, 'transaction_id' => $transactionId, 'message' => $message]];
 		$this->connect($onResponse, $onError, $onConnect);
 	}
 
-	public function notifyGroup(string $message, string $group, ?string $senderId = null, ?callable $onResponse = null, ?callable $onError = null, ?callable $onConnect = null): void
+	public function notifyGroup(string $message, string $group, ?string $senderId = null, ?callable $onError = null, ?callable $onConnect = null): void
 	{
-		$this->pendingMessages[] = ['data' => ['op' => self::OP_NOTIFY_GROUP, 'group' => $group, 'device_id' => $senderId, 'message' => $message]];
-		$this->connect($onResponse, $onError, $onConnect);
+		$this->op = self::OP_NOTIFY_GROUP;
+		$this->pendingMessages[] = ['data' => ['op' => $this->op, 'group' => $group, 'device_id' => $senderId, 'message' => $message]];
+		$this->connect(null, $onError, $onConnect);
 	}
 
 	private function sendPendingMessages(): void
@@ -236,8 +252,11 @@ final class SobitEcr
 	{
 		$this->ackTimer = null;
 		$this->closeAfterAck = false;
+		$this->op = null;
+		$this->opParams = [];
 		$this->pendingMessages = [];
 		$this->pingTimer = null;
 		$this->pongReceived = false;
+		$this->reconnect = true;
 	}
 }
