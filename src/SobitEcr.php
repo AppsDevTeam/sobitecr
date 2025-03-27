@@ -24,8 +24,8 @@ final class SobitEcr
 	public static bool $debug = false;
 
 	private string $apiKey;
-	private string $identifier;
-	private string $token;
+	private ?string $identifier;
+	private ?string $token;
 
 	private ?LoopInterface $loop = null;
 	private ?WebSocket $ws = null;
@@ -39,7 +39,7 @@ final class SobitEcr
 	private bool $pongReceived;
 	private bool $reconnect;
 
-	public function __construct(string $apiKey, string $identifier, string $token)
+	public function __construct(string $apiKey, ?string $identifier = null, ?string $token = null)
 	{
 		$this->apiKey = $apiKey;
 		$this->identifier = $identifier;
@@ -63,10 +63,14 @@ final class SobitEcr
 
 		$this->loop = Loop::get();
 
-		\Ratchet\Client\connect('wss://connect.sobitecr.com', [], [
+		$headers = [
 			'X-Api-Key' => $this->apiKey,
-			'Authorization' => 'Bearer ' . base64_encode($this->identifier . ' ' . $this->token),
-		], $this->loop)->then(
+		];
+		if ($this->identifier && $this->token) {
+			$headers['Authorization'] = 'Bearer ' . base64_encode($this->identifier . ' ' . $this->token);
+		}
+
+		\Ratchet\Client\connect('wss://connect.sobitecr.com', [], $headers, $this->loop)->then(
 			function (WebSocket $conn) use ($onResponse, $onError, $onConnect) {
 				$this->log('onConnect');
 
