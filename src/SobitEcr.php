@@ -193,7 +193,7 @@ final class SobitEcr
 		$this->connect($onResponse, $onError, $onConnect);
 	}
 
-	public function notify(string $message, ?string $deviceId = null, ?callable $onError = null, ?callable $onConnect = null): void
+	public function notify(string $message, string $deviceId, ?callable $onError = null, ?callable $onConnect = null): void
 	{
 		$this->op = self::OP_NOTIFY;
 		$this->pendingMessages[] = ['data' => ['op' => $this->op, 'device_id' => $deviceId, 'message' => $message]];
