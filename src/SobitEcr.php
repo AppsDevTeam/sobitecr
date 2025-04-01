@@ -211,7 +211,7 @@ final class SobitEcr
 	{
 		if ($this->ws !== null) {
 			while ($message = array_shift($this->pendingMessages)) {
-				if ($message['data']['op'] === SobitEcr::OP_NOTIFY_GROUP) {
+				if ($message['data']['op'] === SobitEcr::OP_NOTIFY_GROUP || $message['data']['op'] === self::OP_NOTIFY) {
 					$message['data']['uuid'] = Uuid::uuid4()->toString();
 					$this->closeAfterAck = true;
 				}
