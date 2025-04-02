@@ -31,6 +31,7 @@ final class SobitEcr
 	private ?WebSocket $ws = null;
 
 	private ?TimerInterface $ackTimer;
+	private bool $async;
 	private bool $closeAfterAck;
 	private ?string $op;
 	private array $opParams;
@@ -39,11 +40,12 @@ final class SobitEcr
 	private bool $pongReceived;
 	private bool $reconnect;
 
-	public function __construct(string $apiKey, ?string $identifier = null, ?string $token = null)
+	public function __construct(string $apiKey, ?string $identifier = null, ?string $token = null, bool $async = false)
 	{
 		$this->apiKey = $apiKey;
 		$this->identifier = $identifier;
 		$this->token = $token;
+		$this->async = $async;
 		$this->setDefaults();
 	}
 
@@ -98,14 +100,13 @@ final class SobitEcr
 					}
 
 					if (isset($message['data']['op']) && $message['data']['op'] === 'update_connection_state') {
-						if ($onConnect) {
-							$onConnect();
-						}
+						$onConnect && $onConnect();
 						$this->sendPendingMessages();
 						return;
 					}
 
 					if (isset($message['data']['op']) && $message['data']['op'] === 'ack') {
+						$onResponse && $onResponse();
 						$this->loop->cancelTimer($this->ackTimer);
 						if ($this->closeAfterAck) {
 							$this->close();
@@ -120,8 +121,8 @@ final class SobitEcr
 
 					if (
 						$message['data']['op'] === self::OP_COMPLETE_TRANSACTION
-							&& in_array($this->op, [self::OP_START_TRANSACTION, self::OP_CANCEL_TRANSACTION])
-							&& $this->opParams['transaction_id'] === $message['data']['transaction_id']
+						&& in_array($this->op, [self::OP_START_TRANSACTION, self::OP_CANCEL_TRANSACTION])
+						&& $this->opParams['transaction_id'] === $message['data']['transaction_id']
 					) {
 						$onResponse && $onResponse($message['data']['message']);
 						// we need this because otherwise "ack" wouldn't be sent
@@ -169,6 +170,10 @@ final class SobitEcr
 				$this->error($onError, -1, 'Connection unsuccessful (' . $e->getMessage() . ')');
 			}
 		);
+
+		if (!$this->async) {
+			$this->loop->run();
+		}
 	}
 
 	public function send(string $op, ?string $message = null, ?callable $onResponse = null, ?callable $onError = null, ?callable $onConnect = null): void
