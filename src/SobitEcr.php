@@ -21,6 +21,14 @@ final class SobitEcr
 	private const OP_NOTIFY_GROUP = 'notify_group';
 	private const OP_NOTIFY = 'notify';
 
+	const ERROR_BAD_REQUEST = -1;
+	const ERROR_TARGET_DEVICE_NOT_CONNECTED = 1;
+	const ERROR_SERVER_ERROR = 2;
+	const ERROR_TARGET_DEVICE_NOT_SET = 3;
+	const ERROR_WRONG_CREDENTIALS = 4;
+	const ERROR_WRONG_API_KEY = 5;
+	const ERROR_DUPLICATE_CONNECTION = 6;
+
 	public static bool $debug = false;
 
 	private string $apiKey;
@@ -92,9 +100,6 @@ final class SobitEcr
 					}
 
 					if (isset($message['error'])) {
-						if ($message['error']['code'] === 6) {
-							$this->reconnect = false;
-						}
 						$this->error($onError, $message['error']['code'], $message['error']['message']);
 						return;
 					}
@@ -232,13 +237,9 @@ final class SobitEcr
 
 	private function error(?callable $onError, int $code, string $message): void
 	{
-		if ($onError) {
-			if ($onError($code, $message)) {
-				$this->close();
-			}
-		} else {
-			$this->close();
-		}
+		$onError && $onError($code, $message);
+		$this->reconnect = false;
+		$this->close();
 	}
 
 	private function close(): void
