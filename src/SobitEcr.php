@@ -17,6 +17,7 @@ final class SobitEcr
 {
 	const OP_START_TRANSACTION = 'start_transaction';
 	const OP_CANCEL_TRANSACTION = 'cancel_transaction';
+	const OP_CHECK_TRANSACTION = 'check_transaction';
 	private const OP_COMPLETE_TRANSACTION = 'complete_transaction';
 	private const OP_NOTIFY_GROUP = 'notify_group';
 	private const OP_NOTIFY = 'notify';
@@ -28,6 +29,7 @@ final class SobitEcr
 	const ERROR_WRONG_CREDENTIALS = 4;
 	const ERROR_WRONG_API_KEY = 5;
 	const ERROR_DUPLICATE_CONNECTION = 6;
+	const ERROR_TRANSACTION_NOT_FOUND = 7;
 
 	public static bool $debug = false;
 
@@ -125,11 +127,15 @@ final class SobitEcr
 					}
 
 					if (
-						$message['data']['op'] === self::OP_COMPLETE_TRANSACTION
-						&& in_array($this->op, [self::OP_START_TRANSACTION, self::OP_CANCEL_TRANSACTION])
+						($message['data']['op'] === self::OP_COMPLETE_TRANSACTION || $message['data']['op'] === self::OP_CHECK_TRANSACTION)
+						&& in_array($this->op, [self::OP_START_TRANSACTION, self::OP_CANCEL_TRANSACTION, self::OP_CHECK_TRANSACTION])
 						&& $this->opParams['transaction_id'] === $message['data']['transaction_id']
 					) {
-						$onResponse && $onResponse($message['data']['message']);
+						if ($message['data']['op'] === self::OP_CHECK_TRANSACTION) {
+							$onResponse && $onResponse($message['data']['state'], $message['data']['message']);
+						} else {
+							$onResponse && $onResponse($message['data']['message']);
+						}
 						// we need this because otherwise "ack" wouldn't be sent
 						$this->loop->addTimer(0.001, function () {
 							$this->close();
@@ -200,6 +206,14 @@ final class SobitEcr
 		$this->op = self::OP_CANCEL_TRANSACTION;
 		$this->opParams['transaction_id'] = $transactionId;
 		$this->pendingMessages[] = ['data' => ['op' => $this->op, 'transaction_id' => $transactionId, 'message' => $message]];
+		$this->connect($onResponse, $onError, $onConnect);
+	}
+
+	public function checkTransaction(string $transactionId, ?callable $onResponse = null, ?callable $onError = null, ?callable $onConnect = null): void
+	{
+		$this->op = self::OP_CHECK_TRANSACTION;
+		$this->opParams['transaction_id'] = $transactionId;
+		$this->pendingMessages[] = ['data' => ['op' => $this->op, 'transaction_id' => $transactionId]];
 		$this->connect($onResponse, $onError, $onConnect);
 	}
 
