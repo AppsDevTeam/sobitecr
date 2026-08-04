@@ -56,7 +56,7 @@ $loop->addReadStream(STDIN, function () use ($sobitEcr, $loop) {
 			function (): void {
 				echo "Connection established.\n";
 			},
-			300
+			$params[1] ?? null
 		);
 	} elseif ($op === 'cancel_transaction') {
 		$sobitEcr->cancelTransaction(

@@ -30,7 +30,6 @@ final class SobitEcr
 	const ERROR_WRONG_API_KEY = 5;
 	const ERROR_DUPLICATE_CONNECTION = 6;
 	const ERROR_TRANSACTION_NOT_FOUND = 7;
-	const ERROR_ANOTHER_TRANSACTION_IN_PROGRESS = 8;
 
 	public static bool $debug = false;
 
@@ -194,11 +193,11 @@ final class SobitEcr
 		$this->connect($onResponse, $onError, $onConnect);
 	}
 
-	public function startTransaction(string $message, string $transactionId, ?callable $onResponse = null, ?callable $onError = null, ?callable $onConnect = null, ?int $lockTimeout = null): void
+	public function startTransaction(string $message, string $transactionId, ?callable $onResponse = null, ?callable $onError = null, ?callable $onConnect = null, ?string $deviceId = null): void
 	{
 		$this->op = self::OP_START_TRANSACTION;
 		$this->opParams['transaction_id'] = $transactionId;
-		$this->pendingMessages[] = ['data' => ['op' => $this->op, 'transaction_id' => $transactionId, 'message' => $message, 'lock_timeout' => $lockTimeout]];
+		$this->pendingMessages[] = ['data' => ['op' => $this->op, 'transaction_id' => $transactionId, 'device_id' => $deviceId, 'message' => $message]];
 		$this->connect($onResponse, $onError, $onConnect);
 	}
 
