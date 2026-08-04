@@ -193,11 +193,11 @@ final class SobitEcr
 		$this->connect($onResponse, $onError, $onConnect);
 	}
 
-	public function startTransaction(string $message, string $transactionId, ?callable $onResponse = null, ?callable $onError = null, ?callable $onConnect = null, ?string $deviceId = null): void
+	public function startTransaction(string $message, string $transactionId, ?callable $onResponse = null, ?callable $onError = null, ?callable $onConnect = null): void
 	{
 		$this->op = self::OP_START_TRANSACTION;
 		$this->opParams['transaction_id'] = $transactionId;
-		$this->pendingMessages[] = ['data' => ['op' => $this->op, 'transaction_id' => $transactionId, 'device_id' => $deviceId, 'message' => $message]];
+		$this->pendingMessages[] = ['data' => ['op' => $this->op, 'transaction_id' => $transactionId, 'message' => $message]];
 		$this->connect($onResponse, $onError, $onConnect);
 	}
 
