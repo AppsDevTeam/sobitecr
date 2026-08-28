@@ -94,6 +94,13 @@ final class SobitEcr
 
 					$this->log('Message: ' . $message);
 
+					// A single TCP read can contain multiple frames which are all dispatched
+					// synchronously; the connection may have been closed by a previous one.
+					if ($this->loop === null || $this->ws === null) {
+						$this->log('message received after close, ignoring');
+						return;
+					}
+
 					try {
 						$message = Json::decode($message, true);
 					} catch (JsonException $e) {
@@ -114,7 +121,7 @@ final class SobitEcr
 
 					if (isset($message['data']['op']) && $message['data']['op'] === 'ack') {
 						$onResponse && $onResponse();
-						$this->loop->cancelTimer($this->ackTimer);
+						$this->cancelAckTimer();
 						if ($this->closeAfterAck) {
 							$this->close();
 							return;
@@ -127,9 +134,10 @@ final class SobitEcr
 					}
 
 					if (
-						($message['data']['op'] === self::OP_COMPLETE_TRANSACTION || $message['data']['op'] === self::OP_CHECK_TRANSACTION)
+						isset($message['data']['op'])
+						&& ($message['data']['op'] === self::OP_COMPLETE_TRANSACTION || $message['data']['op'] === self::OP_CHECK_TRANSACTION)
 						&& in_array($this->op, [self::OP_START_TRANSACTION, self::OP_CANCEL_TRANSACTION, self::OP_CHECK_TRANSACTION])
-						&& $this->opParams['transaction_id'] === $message['data']['transaction_id']
+						&& ($this->opParams['transaction_id'] ?? null) === ($message['data']['transaction_id'] ?? null)
 					) {
 						if ($message['data']['op'] === self::OP_CHECK_TRANSACTION) {
 							$onResponse && $onResponse($message['data']['state'], $message['data']['message']);
@@ -240,7 +248,13 @@ final class SobitEcr
 					$this->closeAfterAck = true;
 				}
 				if ($this->closeAfterAck) {
+					// never leave a previous timer running when sending more messages at once
+					$this->cancelAckTimer();
 					$this->ackTimer = $this->loop->addPeriodicTimer(1, function () use ($message) {
+						if ($this->ws === null) {
+							$this->cancelAckTimer();
+							return;
+						}
 						$this->ws->send(Json::encode($message));
 					});
 				}
@@ -256,10 +270,19 @@ final class SobitEcr
 		$this->close();
 	}
 
+	private function cancelAckTimer(): void
+	{
+		if ($this->loop && $this->ackTimer) {
+			$this->loop->cancelTimer($this->ackTimer);
+		}
+		$this->ackTimer = null;
+	}
+
 	private function close(): void
 	{
 		$this->log('close');
 		if ($this->loop) {
+			$this->cancelAckTimer();
 			if ($this->pingTimer) {
 				$this->loop->cancelTimer($this->pingTimer);
 			}
